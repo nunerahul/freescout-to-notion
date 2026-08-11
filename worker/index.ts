@@ -1,17 +1,3 @@
-// 1. Dummy Durable Object class to satisfy Cloudflare's existing storage requirement
-export class WorkflowStatusDO {
-  state: any;
-  env: any;
-  constructor(state: any, env: any) {
-    this.state = state;
-    this.env = env;
-  }
-  async fetch() {
-    return new Response("OK");
-  }
-}
-
-// 2. Your actual FreeScout -> Notion Webhook Worker
 export default {
   async fetch(request: Request, env: any): Promise<Response> {
     if (request.method !== "POST") {
@@ -40,7 +26,7 @@ export default {
       const mailboxId = payload.mailboxId || env.TARGET_MAILBOX_ID || "6";
       const ticketUrl = `${freeScoutDomain}/mailbox/${mailboxId}/${ticketId}`;
 
-      // Build Notion API payload
+      // Build Notion API payload matching your exact database schema
       const notionProperties: any = {
         "Task Name": {
           title: [{ text: { content: `[Ticket #${ticketNumber}] ${ticketSubject}` } }]

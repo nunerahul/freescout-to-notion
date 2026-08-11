@@ -2,16 +2,8 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "freescout-to-notion",
 	"main": "worker/index.ts",
-	"compatibility_date": "2025-10-08",
+	"compatibility_date": "2026-08-11",
 	"observability": {
 		"enabled": true
-	},
-	"durable_objects": {
-		"bindings": [
-			{
-				"name": "WORKFLOW_STATUS",
-				"class_name": "WorkflowStatusDO"
-			}
-		]
 	}
 }

@@ -6,11 +6,12 @@
 	"observability": {
 		"enabled": true
 	},
-	"migrations": [
-		{
-			"tag": "v1",
-			"deleted_classes": ["WorkflowStatusDO"]
-		}
-	],
-	"upload_source_maps": true
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "WORKFLOW_STATUS",
+				"class_name": "WorkflowStatusDO"
+			}
+		]
+	}
 }

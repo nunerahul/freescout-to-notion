@@ -1,7 +1,7 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "freescout-to-notion",
-	"main": "src/index.js",
+	"main": "worker/index.ts",
 	"compatibility_date": "2025-10-08",
 	"observability": {
 		"enabled": true

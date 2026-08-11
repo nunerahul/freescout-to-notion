@@ -1,125 +1,73 @@
-// Export the Workflow and Durable Object classes
-export { MyWorkflow } from "./workflow";
-export { WorkflowStatusDO } from "./durable-object";
-
-/**
- * Main Worker fetch handler
- *
- * Handles API routes and WebSocket upgrade requests for workflow management:
- * - POST /api/workflow/start - Create new workflow instance
- * - GET /api/workflow/status/:id - Get workflow status
- * - POST /api/workflow/event/:id - Send events to workflow
- * - GET /ws - WebSocket connection for real-time updates
- */
 export default {
-	async fetch(request: Request, env: Env): Promise<Response> {
-		const url = new URL(request.url);
+  async fetch(request: Request, env: any): Promise<Response> {
+    if (request.method !== "POST") {
+      return new Response("Method not allowed", { status: 405 });
+    }
 
-		// API: Start a new workflow instance
-		if (url.pathname === "/api/workflow/start" && request.method === "POST") {
-			try {
-				const instance = await env.MY_WORKFLOW.create({
-					params: {
-						timestamp: Date.now(),
-					},
-				});
+    try {
+      const payload: any = await request.json();
 
-				return Response.json({
-					instanceId: instance.id,
-					message: "Workflow started successfully",
-				});
-			} catch {
-				return Response.json(
-					{ error: "Failed to start workflow" },
-					{ status: 500 },
-				);
-			}
-		}
+      // Filter: Only process emails coming from Mailbox #6
+      if (env.TARGET_MAILBOX_ID && String(payload.mailboxId) !== String(env.TARGET_MAILBOX_ID)) {
+        return new Response("Ignored: Email belongs to another mailbox", { status: 200 });
+      }
 
-		// API: Get workflow status
-		if (url.pathname.startsWith("/api/workflow/status/")) {
-			const instanceId = url.pathname.split("/").pop();
-			if (!instanceId) {
-				return Response.json(
-					{ error: "Instance ID required" },
-					{ status: 400 },
-				);
-			}
+      // Extract details sent by FreeScout webhook
+      const ticketSubject = payload.subject || "No Subject";
+      const ticketId = payload.id || "";
+      const ticketNumber = payload.number || "";
+      
+      // Get tags if attached in FreeScout
+      const tags = payload.tags || []; 
+      const notionTags = tags.map((t: any) => ({ name: typeof t === 'string' ? t : t.name }));
 
-			try {
-				const instance = await env.MY_WORKFLOW.get(instanceId);
-				const status = await instance.status();
-				return Response.json(status);
-			} catch {
-				return Response.json(
-					{ error: "Failed to get workflow status" },
-					{ status: 500 },
-				);
-			}
-		}
+      // Build direct link: https://phoenix.chemwatch.net/mailbox/6/238
+      const freeScoutDomain = env.FREESCOUT_DOMAIN || "https://phoenix.chemwatch.net";
+      const mailboxId = payload.mailboxId || env.TARGET_MAILBOX_ID || "6";
+      const ticketUrl = `${freeScoutDomain}/mailbox/${mailboxId}/${ticketId}`;
 
-		// API: Send event to workflow instance
-		if (
-			url.pathname.startsWith("/api/workflow/event/") &&
-			request.method === "POST"
-		) {
-			const instanceId = url.pathname.split("/").pop();
-			if (!instanceId) {
-				return Response.json(
-					{ error: "Instance ID required" },
-					{ status: 400 },
-				);
-			}
+      // Build Notion API payload matching your exact database schema
+      const notionProperties: any = {
+        "Task Name": {
+          title: [{ text: { content: `[Ticket #${ticketNumber}] ${ticketSubject}` } }]
+        },
+        "FreeScout Link": {
+          url: ticketUrl
+        },
+        "Status": {
+          status: { name: "Not started" }
+        }
+      };
 
-			try {
-				const body = (await request.json()) as {
-					approved: boolean;
-					comment?: string;
-				};
-				const instance = await env.MY_WORKFLOW.get(instanceId);
+      if (notionTags.length > 0) {
+        notionProperties["Tag"] = {
+          multi_select: notionTags
+        };
+      }
 
-				await instance.sendEvent({
-					type: "user-approval",
-					payload: body,
-				});
+      // Send to Notion API
+      const notionResponse = await fetch("https://api.notion.com/v1/pages", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${env.NOTION_API_KEY}`,
+          "Content-Type": "application/json",
+          "Notion-Version": "2022-06-28"
+        },
+        body: JSON.stringify({
+          parent: { database_id: env.NOTION_DATABASE_ID },
+          properties: notionProperties
+        })
+      });
 
-				return Response.json({
-					success: true,
-					message: "Event sent successfully",
-				});
-			} catch {
-				return Response.json(
-					{ error: "Failed to send event" },
-					{ status: 500 },
-				);
-			}
-		}
+      if (!notionResponse.ok) {
+        const errorText = await notionResponse.text();
+        return new Response(`Notion API Error: ${errorText}`, { status: 500 });
+      }
 
-		// WebSocket: Connect to workflow status updates
-		if (url.pathname === "/ws") {
-			const instanceId = url.searchParams.get("instanceId");
-			if (!instanceId) {
-				return new Response("instanceId query parameter required", {
-					status: 400,
-				});
-			}
+      return new Response("Task successfully added to Notion!", { status: 200 });
 
-			const upgradeHeader = request.headers.get("Upgrade");
-			if (upgradeHeader !== "websocket") {
-				return new Response("Expected Upgrade: websocket", { status: 426 });
-			}
-
-			try {
-				const doId = env.WORKFLOW_STATUS.idFromName(instanceId);
-				const stub = env.WORKFLOW_STATUS.get(doId);
-				return stub.fetch(request);
-			} catch {
-				return new Response("Failed to establish WebSocket connection", {
-					status: 500,
-				});
-			}
-		}
-
-		return Response.json({ error: "Not Found" }, { status: 404 });
-	},
-} satisfies ExportedHandler<Env>;
+    } catch (err: any) {
+      return new Response(`Worker Error: ${err.message}`, { status: 500 });
+    }
+  }
+};
